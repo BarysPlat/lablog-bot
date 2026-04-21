@@ -40,7 +40,7 @@ def get_sheets_service():
     return build("sheets", "v4", credentials=creds).spreadsheets()
 
 def fetch_all_rows(sheets):
-    result = sheets.values().get(spreadsheetId=SPREADSHEET_ID, range=f"{SHEET_NAME}!A:S").execute()
+    result = sheets.values().get(spreadsheetId=SPREADSHEET_ID, range=f"'{SHEET_NAME}'!A:S").execute()
     rows = result.get("values", [])
     if len(rows) < 2:
         return []
@@ -50,7 +50,7 @@ def fetch_all_rows(sheets):
 def update_status(sheets, row_index, status, responsible=""):
     sheet_row = row_index + 2
     sheets.values().update(spreadsheetId=SPREADSHEET_ID,
-        range=f"{SHEET_NAME}!S{sheet_row}:T{sheet_row}",
+        range=f"'{SHEET_NAME}'!S{sheet_row}:T{sheet_row}",
         valueInputOption="RAW", body={"values": [[status, responsible]]}).execute()
 
 def load_sent():
@@ -196,7 +196,7 @@ async def main():
     app.add_handler(CallbackQueryHandler(handle_callback))
     async with app:
         await app.start()
-        await app.updater.start_polling()
+        await app.updater.start_polling(drop_pending_updates=True)
         await poll_loop(app.bot)
 
 if __name__ == "__main__":
