@@ -191,9 +191,19 @@ async def handle_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             log.error("Ошибка таблицы при назначении: %s", e)
         try:
-            await ctx.bot.send_message(chat_id=emp_tid, text=fmt_personal(lead_data, uname))
+            # Пересылаем оригинальное сообщение сотруднику
+            await ctx.bot.forward_message(
+                chat_id=emp_tid,
+                from_chat_id=TELEGRAM_CHAT_ID,
+                message_id=query.message.message_id
+            )
+            # Добавляем личное уведомление
+            await ctx.bot.send_message(
+                chat_id=emp_tid,
+                text=f"Выше — лид назначен вам от {uname}. Свяжитесь с клиентом как можно скорее!"
+            )
         except Exception as e:
-            log.error("Не удалось отправить %s: %s", emp_name, e)
+            log.error("Не удалось переслать %s: %s", emp_name, e)
             await ctx.bot.send_message(chat_id=TELEGRAM_CHAT_ID,
                 text=f"Не удалось отправить уведомление {emp_name} — пусть напишет боту /start")
             return
