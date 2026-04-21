@@ -131,6 +131,16 @@ async def handle_callback(update, ctx):
     row_idx  = meta.get("row_index", -1)
     lead_data = meta.get("lead_data", {})
     log.info("lead_data keys: %s", list(lead_data.keys()))
+    # Если lead_data пустой - читаем из таблицы напрямую
+    if not lead_data and row_idx >= 0:
+        try:
+            sheets_tmp = get_sheets()
+            rows_tmp = fetch_rows(sheets_tmp)
+            if row_idx < len(rows_tmp):
+                lead_data = rows_tmp[row_idx]
+                log.info("lead_data loaded from sheet: %s", list(lead_data.keys()))
+        except Exception as e:
+            log.error("Не удалось загрузить lead_data из таблицы: %s", e)
     sheets   = get_sheets_service()
     if action == "show_staff":
         await query.edit_message_reply_markup(reply_markup=staff_keyboard(lead_id))
