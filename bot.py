@@ -17,8 +17,8 @@ POLL_INTERVAL_SEC  = 120
 SENT_DB            = "sent_leads.json"
 
 EMPLOYEES = {
-    "emp_1": {"name": "Фарангиз (РОП)",   "telegram_id": 000000001, "emoji": "👩‍💼"},
-    "emp_2": {"name": "Камила (Менеджер)", "telegram_id": 000000002, "emoji": "👩‍💼"},
+    "emp_1": {"name": "Фарангиз (РОП)",   "telegram_id": 1, "emoji": "👩‍💼"},
+    "emp_2": {"name": "Камила (Менеджер)", "telegram_id": 2, "emoji": "👩‍💼"},
 }
 
 URGENCY_LABELS   = {"hozir": "🔥 Сейчас", "bir_necha_oy": "📅 Через месяц", "kelajakda": "⏳ В будущем"}
