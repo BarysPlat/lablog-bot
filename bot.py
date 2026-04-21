@@ -13,6 +13,11 @@ TELEGRAM_CHAT_ID   = "-5243518688"
 SPREADSHEET_ID     = "1juQWx9PeSyZsTo6tOzCm61_W1X_8n6Wcj1XzUnNdvqM"
 SHEET_NAME         = "20042026"
 CREDS_FILE         = "credentials.json"
+
+if os.getenv("GOOGLE_CREDS"):
+    import base64
+    with open("credentials.json","wb") as f:
+        f.write(base64.b64decode(os.getenv("GOOGLE_CREDS")))
 POLL_INTERVAL_SEC  = 120
 SENT_DB            = "sent_leads.json"
 
