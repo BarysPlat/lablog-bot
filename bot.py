@@ -130,6 +130,7 @@ async def handle_callback(update, ctx):
     meta     = sent_db.get(lead_id, {})
     row_idx  = meta.get("row_index", -1)
     lead_data = meta.get("lead_data", {})
+    log.info("lead_data keys: %s", list(lead_data.keys()))
     sheets   = get_sheets_service()
     if action == "show_staff":
         await query.edit_message_reply_markup(reply_markup=staff_keyboard(lead_id))
