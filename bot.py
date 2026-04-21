@@ -11,7 +11,7 @@ log = logging.getLogger(__name__)
 TELEGRAM_BOT_TOKEN = "8116544730:AAE24c3b8VfCY1AlIEf8TeW60h8I9s4-ecM"
 TELEGRAM_CHAT_ID   = "-5243518688"
 SPREADSHEET_ID     = "1juQWx9PeSyZsTo6tOzCm61_W1X_8n6Wcj1XzUnNdvqM"
-SHEET_NAME         = "20042026"
+SHEET_NAME         = os.getenv("SHEET_NAME", "Leads")
 CREDS_FILE         = "credentials.json"
 
 if os.getenv("GOOGLE_CREDS"):
