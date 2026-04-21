@@ -1,4 +1,4 @@
-import os, json, logging, asyncio
+import os, json, logging, asyncio, base64
 from datetime import datetime
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
@@ -8,18 +8,18 @@ from telegram.ext import ApplicationBuilder, CallbackQueryHandler, ContextTypes
 logging.basicConfig(format="%(asctime)s %(levelname)s %(message)s", level=logging.INFO)
 log = logging.getLogger(__name__)
 
-TELEGRAM_BOT_TOKEN = "8116544730:AAE24c3b8VfCY1AlIEf8TeW60h8I9s4-ecM"
-TELEGRAM_CHAT_ID   = "-5243518688"
-SPREADSHEET_ID     = "1juQWx9PeSyZsTo6tOzCm61_W1X_8n6Wcj1XzUnNdvqM"
-SHEET_NAME         = os.getenv("SHEET_NAME", "Leads")
-CREDS_FILE         = "credentials.json"
+google_creds_b64 = os.getenv("GOOGLE_CREDS")
+if google_creds_b64:
+    with open("credentials.json", "wb") as f:
+        f.write(base64.b64decode(google_creds_b64))
 
-if os.getenv("GOOGLE_CREDS"):
-    import base64
-    with open("credentials.json","wb") as f:
-        f.write(base64.b64decode(os.getenv("GOOGLE_CREDS")))
-POLL_INTERVAL_SEC  = 120
-SENT_DB            = "sent_leads.json"
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID   = os.getenv("TELEGRAM_CHAT_ID")
+SPREADSHEET_ID     = os.getenv("SPREADSHEET_ID")
+SHEET_NAME         = os.getenv("SHEET_NAME", "Leads")
+CREDS_FILE         = os.getenv("CREDS_FILE", "credentials.json")
+POLL_INTERVAL_SEC  = int(os.getenv("POLL_INTERVAL_SEC", "120"))
+LEAD_CACHE         = {}
 
 EMPLOYEES = {
     "emp_1":  {"name": "Фарангиз (РОП)",            "telegram_id": 7279196775, "emoji": "👩"},
@@ -30,51 +30,72 @@ EMPLOYEES = {
     "emp_6":  {"name": "Шохиста (Менеджер)",         "telegram_id": 8098661552, "emoji": "👩"},
     "emp_7":  {"name": "Фаррух (Маркетолог)",        "telegram_id": 920437340,  "emoji": "👨"},
     "emp_8":  {"name": "Артемий (Ген. директор)",    "telegram_id": 7450966866, "emoji": "👨"},
-    "emp_9":  {"name": "Алексей (Исп. директор)",   "telegram_id": 1127489602, "emoji": "👨"},
+    "emp_9":  {"name": "Алексей (Исп. директор)",    "telegram_id": 1127489602, "emoji": "👨"},
     "emp_10": {"name": "Анастасия (Куратор)",        "telegram_id": 6880815220, "emoji": "👩"},
     "emp_11": {"name": "Лорета (Куратор)",           "telegram_id": 1985871854, "emoji": "👩"},
-    "emp_12": {"name": "Анвар М. (Комм. директор)", "telegram_id": 7687844277, "emoji": "👨"},
+    "emp_12": {"name": "Анвар М. (Комм. директор)",  "telegram_id": 7687844277, "emoji": "👨"},
     "emp_13": {"name": "Борис (Директор)",           "telegram_id": 6695764184, "emoji": "👨"},
 }
 
-URGENCY_LABELS   = {"hozir": "🔥 Сейчас", "bir_necha_oy": "📅 Через месяц", "kelajakda": "⏳ В будущем"}
-DIRECTION_LABELS = {"sut_fermasi": "🐄 Молочная ферма", "go'sht_fermasi": "🥩 Мясная ферма", "qorakol": "🐑 Каракуль"}
+URGENCY_LABELS   = {"hozir": "Сейчас", "bir_necha_oy": "Через месяц", "kelajakda": "В будущем",
+                    "yaqin_vaqt_ichida": "Скоро", "hozircha_variantlarni_o'rganmoqdaman": "Изучаю варианты"}
+DIRECTION_LABELS = {"sut_fermasi": "Молочная ферма", "go'sht_fermasi": "Мясная ферма",
+                    "go'sht_xo'jaligi": "Мясное хозяйство", "qorakol": "Каракуль",
+                    "sut_ishlab_chiqarish_va_qayta_ishlash": "Молочное производство"}
 PLATFORM_LABELS  = {"ig": "Instagram", "fb": "Facebook"}
 COL = {"id": "id", "created": "created_time", "ad": "ad_name", "platform": "platform",
        "direction": "sizni_qaysi_yo'nalish_qiziqtiradi?", "interest": "sizni_nima_qiziqtiradi?",
        "urgency": "bu_siz_uchun_qachon_dolzarb?", "name": "full_name",
        "phone": "phone_number", "email": "email", "status": "lead_status"}
 
-def get_sheets_service():
+def get_sheets():
     scopes = ["https://www.googleapis.com/auth/spreadsheets"]
     creds  = Credentials.from_service_account_file(CREDS_FILE, scopes=scopes)
     return build("sheets", "v4", credentials=creds).spreadsheets()
 
-def fetch_all_rows(sheets):
-    result = sheets.values().get(spreadsheetId=SPREADSHEET_ID, range=f"'{SHEET_NAME}'!A:S").execute()
+def fetch_rows(sheets):
+    result = sheets.values().get(
+        spreadsheetId=SPREADSHEET_ID, range=f"'{SHEET_NAME}'!A:T"
+    ).execute()
     rows = result.get("values", [])
     if len(rows) < 2:
         return []
     headers = rows[0]
-    return [dict(zip(headers, r + [""] * (len(headers) - len(r)))) for r in rows[1:]]
+    return [dict(zip(headers, r + [""] * max(0, len(headers) - len(r)))) for r in rows[1:]]
 
-def update_status(sheets, row_index, status, responsible=""):
-    sheet_row = row_index + 2
-    sheets.values().update(spreadsheetId=SPREADSHEET_ID,
+def update_status(sheets, row_idx, status, responsible=""):
+    sheet_row = row_idx + 2
+    sheets.values().update(
+        spreadsheetId=SPREADSHEET_ID,
         range=f"'{SHEET_NAME}'!S{sheet_row}:T{sheet_row}",
-        valueInputOption="RAW", body={"values": [[status, responsible]]}).execute()
+        valueInputOption="RAW",
+        body={"values": [[status, responsible]]}
+    ).execute()
 
-def load_sent():
-    if os.path.exists(SENT_DB):
-        with open(SENT_DB) as f:
-            return json.load(f)
+def mark_sent(sheets, row_idx):
+    sheet_row = row_idx + 2
+    sheets.values().update(
+        spreadsheetId=SPREADSHEET_ID,
+        range=f"'{SHEET_NAME}'!T{sheet_row}",
+        valueInputOption="RAW",
+        body={"values": [["SENT_TO_TG"]]}
+    ).execute()
+
+def get_lead_from_cache_or_sheet(lead_id, sheets=None):
+    if lead_id in LEAD_CACHE and LEAD_CACHE[lead_id]:
+        return LEAD_CACHE[lead_id]
+    if sheets:
+        try:
+            rows = fetch_rows(sheets)
+            for r in rows:
+                if r.get(COL["id"], "").strip() == lead_id:
+                    LEAD_CACHE[lead_id] = r
+                    return r
+        except Exception as e:
+            log.error("Ошибка чтения из таблицы: %s", e)
     return {}
 
-def save_sent(db):
-    with open(SENT_DB, "w") as f:
-        json.dump(db, f, ensure_ascii=False, indent=2)
-
-def format_lead_card(lead):
+def fmt_lead(lead):
     name      = lead.get(COL["name"], "-")
     phone     = lead.get(COL["phone"], "-").replace("p:", "")
     email     = lead.get(COL["email"], "-")
@@ -82,133 +103,131 @@ def format_lead_card(lead):
     interest  = lead.get(COL["interest"], "-").replace("_", " ")
     urgency   = URGENCY_LABELS.get(lead.get(COL["urgency"], ""), lead.get(COL["urgency"], "-"))
     platform  = PLATFORM_LABELS.get(lead.get(COL["platform"], ""), lead.get(COL["platform"], "-"))
-    ad        = lead.get(COL["ad"], "-")
+    ad        = lead.get(COL["ad"], "-")[:50]
     created   = lead.get(COL["created"], "")[:19].replace("T", " ") if lead.get(COL["created"]) else "-"
     return (f"Новый лид\n---\nИмя: {name}\nТел: {phone}\nEmail: {email}\n---\n"
             f"Направление: {direction}\nИнтерес: {interest}\nСрочность: {urgency}\n---\n"
-            f"Источник: {platform}\nОбъявление: {ad[:50]}\nСоздан: {created}")
+            f"Источник: {platform}\nОбъявление: {ad}\nСоздан: {created}")
 
-def format_personal(lead, assigned_by):
-    name    = lead.get(COL["name"], "-")
-    phone   = lead.get(COL["phone"], "-").replace("p:", "")
-    email   = lead.get(COL["email"], "-")
-    direction = DIRECTION_LABELS.get(lead.get(COL["direction"], ""), "-")
+def fmt_personal(lead, by):
+    name      = lead.get(COL["name"], "-")
+    phone     = lead.get(COL["phone"], "-").replace("p:", "")
+    email     = lead.get(COL["email"], "-")
+    direction = DIRECTION_LABELS.get(lead.get(COL["direction"], ""), lead.get(COL["direction"], "-"))
     interest  = lead.get(COL["interest"], "-").replace("_", " ")
-    urgency   = URGENCY_LABELS.get(lead.get(COL["urgency"], ""), "-")
-    return (f"Вам назначен лид (от {assigned_by})\n---\n"
+    urgency   = URGENCY_LABELS.get(lead.get(COL["urgency"], ""), lead.get(COL["urgency"], "-"))
+    return (f"Вам назначен лид (от {by})\n---\n"
             f"Клиент: {name}\nТел: {phone}\nEmail: {email}\n---\n"
             f"Направление: {direction}\nИнтерес: {interest}\nСрочность: {urgency}\n---\n"
             f"Свяжитесь с клиентом как можно скорее!")
 
-def main_keyboard(lead_id):
+def main_kb(lead_id):
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("Беру в работу", callback_data=f"take:{lead_id}"),
          InlineKeyboardButton("Назначить", callback_data=f"show_staff:{lead_id}")],
         [InlineKeyboardButton("Просмотрено", callback_data=f"seen:{lead_id}")]
     ])
 
-def staff_keyboard(lead_id):
-    buttons = []
-    for emp_id, emp in EMPLOYEES.items():
-        buttons.append([InlineKeyboardButton(f"{emp['emoji']} {emp['name']}",
-                        callback_data=f"assign:{lead_id}:{emp_id}")])
-    buttons.append([InlineKeyboardButton("Назад", callback_data=f"back:{lead_id}")])
-    return InlineKeyboardMarkup(buttons)
+def staff_kb(lead_id):
+    btns = [[InlineKeyboardButton(f"{e['emoji']} {e['name']}", callback_data=f"assign:{lead_id}:{eid}")]
+            for eid, e in EMPLOYEES.items()]
+    btns.append([InlineKeyboardButton("Назад", callback_data=f"back:{lead_id}")])
+    return InlineKeyboardMarkup(btns)
 
-async def handle_callback(update, ctx):
-    query    = update.callback_query
+async def handle_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query  = update.callback_query
     await query.answer()
-    data     = query.data
-    user     = query.from_user
-    username = f"@{user.username}" if user.username else user.full_name
+    data   = query.data
     if data == "noop":
         return
-    parts   = data.split(":")
-    action  = parts[0]
+    user   = query.from_user
+    uname  = f"@{user.username}" if user.username else user.full_name
+    parts  = data.split(":")
+    action = parts[0]
     lead_id = parts[1] if len(parts) > 1 else ""
-    sent_db  = load_sent()
-    meta     = sent_db.get(lead_id, {})
-    row_idx  = meta.get("row_index", -1)
-    lead_data = meta.get("lead_data", {})
-    log.info("lead_data keys: %s", list(lead_data.keys()))
-    # Если lead_data пустой - читаем из таблицы напрямую
-    if not lead_data and row_idx >= 0:
-        try:
-            sheets_tmp = get_sheets()
-            rows_tmp = fetch_rows(sheets_tmp)
-            if row_idx < len(rows_tmp):
-                lead_data = rows_tmp[row_idx]
-                log.info("lead_data loaded from sheet: %s", list(lead_data.keys()))
-        except Exception as e:
-            log.error("Не удалось загрузить lead_data из таблицы: %s", e)
-    sheets   = get_sheets_service()
+
+    sheets    = get_sheets()
+    lead_data = get_lead_from_cache_or_sheet(lead_id, sheets)
+
     if action == "show_staff":
-        await query.edit_message_reply_markup(reply_markup=staff_keyboard(lead_id))
+        await query.edit_message_reply_markup(reply_markup=staff_kb(lead_id))
+
     elif action == "back":
-        await query.edit_message_reply_markup(reply_markup=main_keyboard(lead_id))
+        await query.edit_message_reply_markup(reply_markup=main_kb(lead_id))
+
     elif action == "assign" and len(parts) == 3:
-        emp_id = parts[2]
-        emp    = EMPLOYEES.get(emp_id)
+        emp = EMPLOYEES.get(parts[2])
         if not emp:
             return
-        emp_name  = emp["name"]
-        emp_tg_id = emp["telegram_id"]
+        emp_name = emp["name"]
+        emp_id   = emp["telegram_id"]
         await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup([[
-            InlineKeyboardButton(f"Назначен: {emp_name} (РОП: {username})", callback_data="noop")
+            InlineKeyboardButton(f"Назначен: {emp_name} (РОП: {uname})", callback_data="noop")
         ]]))
-        if row_idx >= 0:
-            update_status(sheets, row_idx, "ASSIGNED", f"{emp_name} (назначил {username})")
         try:
-            await ctx.bot.send_message(chat_id=emp_tg_id,
-                text=format_personal(lead_data, username))
+            rows = fetch_rows(sheets)
+            row_idx = next((i for i, r in enumerate(rows) if r.get(COL["id"], "").strip() == lead_id), -1)
+            if row_idx >= 0:
+                update_status(sheets, row_idx, "ASSIGNED", f"{emp_name} (назначил {uname})")
+        except Exception as e:
+            log.error("Ошибка таблицы: %s", e)
+        try:
+            await ctx.bot.send_message(chat_id=emp_id, text=fmt_personal(lead_data, uname))
         except Exception as e:
             log.error("Не удалось отправить %s: %s", emp_name, e)
             await ctx.bot.send_message(chat_id=TELEGRAM_CHAT_ID,
                 text=f"Не удалось отправить уведомление {emp_name} — пусть напишет боту /start")
             return
         await ctx.bot.send_message(chat_id=TELEGRAM_CHAT_ID,
-            text=f"{username} назначил лид на {emp_name}. Уведомление отправлено.")
-        meta["status"] = "ASSIGNED"
-        sent_db[lead_id] = meta
-        save_sent(sent_db)
+            text=f"{uname} назначил лид на {emp_name}. Уведомление отправлено.")
+
     elif action == "take":
-        if row_idx >= 0:
-            update_status(sheets, row_idx, "IN_PROGRESS", username)
+        try:
+            rows = fetch_rows(sheets)
+            row_idx = next((i for i, r in enumerate(rows) if r.get(COL["id"], "").strip() == lead_id), -1)
+            if row_idx >= 0:
+                update_status(sheets, row_idx, "IN_PROGRESS", uname)
+        except Exception as e:
+            log.error("Ошибка таблицы: %s", e)
         await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup([[
-            InlineKeyboardButton(f"Взял в работу: {username}", callback_data="noop")
+            InlineKeyboardButton(f"Взял в работу: {uname}", callback_data="noop")
         ]]))
         await ctx.bot.send_message(chat_id=TELEGRAM_CHAT_ID,
-            text=f"{username} взял лид в работу: {lead_data.get(COL['name'], '-')}")
-        meta["status"] = "IN_PROGRESS"
-        sent_db[lead_id] = meta
-        save_sent(sent_db)
+            text=f"{uname} взял лид в работу: {lead_data.get(COL['name'], '-')}")
+
     elif action == "seen":
-        if row_idx >= 0:
-            update_status(sheets, row_idx, "SEEN", username)
+        try:
+            rows = fetch_rows(sheets)
+            row_idx = next((i for i, r in enumerate(rows) if r.get(COL["id"], "").strip() == lead_id), -1)
+            if row_idx >= 0:
+                update_status(sheets, row_idx, "SEEN", uname)
+        except Exception as e:
+            log.error("Ошибка таблицы: %s", e)
         await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup([[
-            InlineKeyboardButton(f"Просмотрено: {username}", callback_data="noop")
+            InlineKeyboardButton(f"Просмотрено: {uname}", callback_data="noop")
         ]]))
 
-async def poll_loop(bot):
-    log.info("Поллинг запущен, интервал %d сек.", POLL_INTERVAL_SEC)
+async def poll_loop(bot: Bot):
+    log.info("Поллинг запущен, лист: %s, интервал: %d сек.", SHEET_NAME, POLL_INTERVAL_SEC)
     while True:
         try:
-            sheets  = get_sheets_service()
-            rows    = fetch_all_rows(sheets)
-            sent_db = load_sent()
-            changed = False
+            sheets = get_sheets()
+            rows   = fetch_rows(sheets)
             for idx, lead in enumerate(rows):
                 lead_id = lead.get(COL["id"], "").strip()
-                if not lead_id or lead_id in sent_db:
+                if not lead_id:
                     continue
-                msg = await bot.send_message(chat_id=TELEGRAM_CHAT_ID,
-                    text=format_lead_card(lead), reply_markup=main_keyboard(lead_id))
-                sent_db[lead_id] = {"row_index": idx, "message_id": msg.message_id,
-                    "sent_at": datetime.now().isoformat(), "lead_data": lead}
-                changed = True
-                log.info("Отправлен лид %s", lead_id)
-            if changed:
-                save_sent(sent_db)
+                if any("SENT_TO_TG" in str(v) for v in lead.values()):
+                    LEAD_CACHE[lead_id] = lead
+                    continue
+                LEAD_CACHE[lead_id] = lead
+                await bot.send_message(
+                    chat_id=TELEGRAM_CHAT_ID,
+                    text=fmt_lead(lead),
+                    reply_markup=main_kb(lead_id)
+                )
+                mark_sent(sheets, idx)
+                log.info("Отправлен лид: %s", lead_id)
         except Exception as e:
             log.error("Ошибка поллинга: %s", e)
         await asyncio.sleep(POLL_INTERVAL_SEC)
@@ -223,4 +242,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-# rebuild Tue Apr 21 11:07:50 CEST 2026
