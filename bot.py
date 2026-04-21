@@ -40,7 +40,7 @@ def get_sheets_service():
     return build("sheets", "v4", credentials=creds).spreadsheets()
 
 def fetch_all_rows(sheets):
-    result = sheets.values().get(spreadsheetId=SPREADSHEET_ID, range=f"{SHEET_NAME}!A:S").execute()
+    result = sheets.values().get(spreadsheetId=SPREADSHEET_ID, range=f"'{SHEET_NAME}'!A:S").execute()
     rows = result.get("values", [])
     if len(rows) < 2:
         return []
