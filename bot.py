@@ -22,8 +22,19 @@ POLL_INTERVAL_SEC  = 120
 SENT_DB            = "sent_leads.json"
 
 EMPLOYEES = {
-    "emp_1": {"name": "Фарангиз (РОП)",   "telegram_id": 1, "emoji": "👩‍💼"},
-    "emp_2": {"name": "Камила (Менеджер)", "telegram_id": 2, "emoji": "👩‍💼"},
+    "emp_1":  {"name": "Фарангиз (РОП)",            "telegram_id": 7279196775, "emoji": "👩"},
+    "emp_2":  {"name": "Камила (Ст. менеджер)",      "telegram_id": 8194515580, "emoji": "👩"},
+    "emp_3":  {"name": "Анвар (Менеджер)",           "telegram_id": 7340482923, "emoji": "👨"},
+    "emp_4":  {"name": "Динора (Менеджер)",          "telegram_id": 6838703617, "emoji": "👩"},
+    "emp_5":  {"name": "Азиз (Менеджер)",            "telegram_id": 6992638274, "emoji": "👨"},
+    "emp_6":  {"name": "Шохиста (Менеджер)",         "telegram_id": 8098661552, "emoji": "👩"},
+    "emp_7":  {"name": "Фаррух (Маркетолог)",        "telegram_id": 920437340,  "emoji": "👨"},
+    "emp_8":  {"name": "Артемий (Ген. директор)",    "telegram_id": 7450966866, "emoji": "👨"},
+    "emp_9":  {"name": "Алексей (Исп. директор)",   "telegram_id": 1127489602, "emoji": "👨"},
+    "emp_10": {"name": "Анастасия (Куратор)",        "telegram_id": 6880815220, "emoji": "👩"},
+    "emp_11": {"name": "Лорета (Куратор)",           "telegram_id": 1985871854, "emoji": "👩"},
+    "emp_12": {"name": "Анвар М. (Комм. директор)", "telegram_id": 7687844277, "emoji": "👨"},
+    "emp_13": {"name": "Борис (Директор)",           "telegram_id": 6695764184, "emoji": "👨"},
 }
 
 URGENCY_LABELS   = {"hozir": "🔥 Сейчас", "bir_necha_oy": "📅 Через месяц", "kelajakda": "⏳ В будущем"}
